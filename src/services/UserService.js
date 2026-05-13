@@ -1,174 +1,278 @@
+// File Path: src/services/UserService.js
+
 const User = require('../models/User');
+const CONSTANTS = require('../config/constants');
 
 /**
- * UserService - Core Business Logic for User Identity & Access Management (IAM).
- * Optimized for Multi-Server Architecture, Ghost Users, and Role-Based Access Control.
+ * UserService
+ * Handles all core business logic related to Users.
+ * Follows the Single Responsibility Principle (SRP).
+ * Includes generous methods for CRUD, token economy, RBAC, and analytics.
  */
 class UserService {
-
-    // ============================================================================
-    // CORE USER MANAGEMENT (CREATE, READ, UPDATE)
-    // ============================================================================
+    // ==========================================
+    // 👤 CORE USER & AUTH METHODS
+    // ==========================================
 
     /**
-     * Creates a new user or re-activates a suspended one.
-     * Supports both Telegram users and Ghost (Proxy) users.
+     * Finds an existing user by Bale ID or registers a new one.
+     * @param {Object} baleUserObj - The user object from Bale WebAppData or Message
+     * @param {string} phoneNumber - The user's verified phone number
+     * @returns {Promise<Object>} The User document
      */
-    async createUser(userData) {
-        const { telegramId, role, name, resellerCode, isGhost = false } = userData;
-        const upperResellerCode = resellerCode.toUpperCase();
+    async findOrCreateUser(baleUserObj, phoneNumber) {
+        let user = await User.findOne({ baleId: baleUserObj.id });
 
-        // Check if code already exists (for another user)
-        const codeExists = await User.findOne({ resellerCode: upperResellerCode });
-
-        if (isGhost) {
-            if (codeExists) throw new Error('RESELLER_CODE_EXISTS');
-
-            // Create purely ghost user (telegramId is intentionally undefined to trigger sparse index)
-            return await User.create({
-                role,
-                name,
-                resellerCode: upperResellerCode,
-                isGhost: true,
-                isActive: true
+        if (!user) {
+            user = await User.create({
+                baleId: baleUserObj.id,
+                phoneNumber: phoneNumber,
+                firstName: baleUserObj.first_name || 'کاربر',
+                lastName: baleUserObj.last_name || null,
+                username: baleUserObj.username || null,
+                // Assign ADMIN role automatically if the ID matches the master admin in config
+                role: baleUserObj.id === require('../config/env').adminBaleId
+                    ? CONSTANTS.ROLES.ADMIN
+                    : CONSTANTS.ROLES.USER,
+                creditBalance: CONSTANTS.DEFAULTS.FREE_CREDIT_TOKENS
             });
         }
-
-        // For Telegram Users: Upsert logic
-        // If a user with this telegramId exists, update them. Otherwise, create.
-        if (codeExists && codeExists.telegramId !== telegramId) {
-            throw new Error('RESELLER_CODE_EXISTS');
-        }
-
-        return await User.findOneAndUpdate(
-            { telegramId },
-            {
-                role,
-                name,
-                resellerCode: upperResellerCode,
-                isGhost: false,
-                isActive: true
-            },
-            {
-                upsert: true,
-                returnDocument: 'after',
-                runValidators: true
-            }
-        );
+        return user;
     }
 
-    async getUserByTelegramId(telegramId) {
-        return await User.findOne({ telegramId, isActive: true });
+    /**
+     * Retrieves a user by their Bale ID.
+     * @param {number} baleId
+     * @returns {Promise<Object|null>}
+     */
+    async getUserByBaleId(baleId) {
+        return User.findOne({ baleId });
     }
 
-    async getUserByResellerCode(resellerCode) {
-        return await User.findOne({
-            resellerCode: resellerCode.toUpperCase(),
-            isActive: true
-        });
+    /**
+     * Retrieves a user by their internal MongoDB ObjectId.
+     * @param {string} userId
+     * @returns {Promise<Object|null>}
+     */
+    async getUserById(userId) {
+        return User.findById(userId);
     }
 
-    async getAllResellers(includeGhosts = true) {
-        const query = { role: 'RESELLER', isActive: true };
-        if (!includeGhosts) {
-            query.isGhost = false;
-        }
-        return await User.find(query).sort({ createdAt: -1 });
-    }
-
+    /**
+     * Updates general user information (e.g., profile changes).
+     * @param {string} userId - MongoDB ObjectId
+     * @param {Object} updateData - Key-value pairs to update
+     * @returns {Promise<Object>} Updated User document
+     */
     async updateUser(userId, updateData) {
-        // Prevent accidental modification of critical fields directly
-        delete updateData.walletBalance;
+        return User.findByIdAndUpdate(userId, updateData, { new: true });
+    }
 
-        if (updateData.resellerCode) {
-            updateData.resellerCode = updateData.resellerCode.toUpperCase();
-        }
+    // ==========================================
+    // 💰 TOKEN ECONOMY & FINANCE METHODS
+    // ==========================================
 
-        return await User.findByIdAndUpdate(
+    /**
+     * Retrieves the current token balance of a user.
+     * @param {string} userId
+     * @returns {Promise<number>} Current balance
+     */
+    async getUserBalance(userId) {
+        const user = await User.findById(userId).select('creditBalance');
+        return user ? user.creditBalance : 0;
+    }
+
+    /**
+     * Deducts tokens after a successful AI interaction.
+     * Also updates the total tokens used for analytics.
+     * @param {string} userId
+     * @param {number} tokensToDeduct
+     * @returns {Promise<Object>} Updated User document
+     */
+    async deductTokens(userId, tokensToDeduct) {
+        return User.findByIdAndUpdate(
             userId,
-            updateData,
-            { returnDocument: 'after', runValidators: true }
+            {
+                $inc: {
+                    creditBalance: -Math.abs(tokensToDeduct),
+                    totalTokensUsed: Math.abs(tokensToDeduct)
+                }
+            },
+            { new: true }
         );
     }
 
-    async isCodeUnique(code, excludeUserId = null) {
-        const query = {
-            resellerCode: code.toUpperCase()
+    /**
+     * Adds tokens to a user's balance (e.g., after a successful purchase).
+     * @param {string} userId
+     * @param {number} tokensToAdd
+     * @returns {Promise<Object>} Updated User document
+     */
+    async addTokens(userId, tokensToAdd) {
+        return User.findByIdAndUpdate(
+            userId,
+            { $inc: { creditBalance: Math.abs(tokensToAdd) } },
+            { new: true }
+        );
+    }
+
+    /**
+     * Tracks the financial LTV (Lifetime Value) of the user.
+     * @param {string} userId
+     * @param {number} amountIrt - Amount paid in IRT
+     * @returns {Promise<Object>} Updated User document
+     */
+    async addMoneySpent(userId, amountIrt) {
+        return User.findByIdAndUpdate(
+            userId,
+            { $inc: { totalMoneySpent: Math.abs(amountIrt) } },
+            { new: true }
+        );
+    }
+
+    // ==========================================
+    // 📈 BEHAVIOR & METRICS METHODS
+    // ==========================================
+
+    /**
+     * Increments the successful AI requests counter.
+     * @param {string} userId
+     * @returns {Promise<Object>} Updated User document
+     */
+    async incrementSuccessfulRequests(userId) {
+        return User.findByIdAndUpdate(
+            userId,
+            { $inc: { successfulAiRequests: 1 } },
+            { new: true }
+        );
+    }
+
+    /**
+     * Marks the user as having been asked for a review.
+     * @param {string} userId
+     * @returns {Promise<Object>} Updated User document
+     */
+    async markReviewAsked(userId) {
+        return User.findByIdAndUpdate(
+            userId,
+            { hasAskedReview: true },
+            { new: true }
+        );
+    }
+
+    // ==========================================
+    // 🛡️ ADMIN & MODERATION METHODS
+    // ==========================================
+
+    /**
+     * Promotes a regular user to an Administrator.
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async promoteToAdmin(userId) {
+        return User.findByIdAndUpdate(
+            userId,
+            { role: CONSTANTS.ROLES.ADMIN },
+            { new: true }
+        );
+    }
+
+    /**
+     * Bans a user from using the bot.
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async banUser(userId) {
+        return User.findByIdAndUpdate(
+            userId,
+            { isActive: false },
+            { new: true }
+        );
+    }
+
+    /**
+     * Unbans a previously banned user.
+     * @param {string} userId
+     * @returns {Promise<Object>}
+     */
+    async unbanUser(userId) {
+        return User.findByIdAndUpdate(
+            userId,
+            { isActive: true },
+            { new: true }
+        );
+    }
+
+    // ==========================================
+    // 📊 QUERY, SEARCH & DASHBOARD METHODS
+    // ==========================================
+
+    /**
+     * Retrieves a paginated list of users.
+     * @param {number} page
+     * @param {number} limit
+     * @param {Object} filter - Optional MongoDB query filters
+     * @returns {Promise<Object>} { users, total, totalPages }
+     */
+    async getAllUsers(page = 1, limit = 20, filter = {}) {
+        const skip = (page - 1) * limit;
+        const [users, total] = await Promise.all([
+            User.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit),
+            User.countDocuments(filter)
+        ]);
+
+        return {
+            users,
+            total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page
+        };
+    }
+
+    /**
+     * Searches for users by phone number, name, or Bale ID.
+     * @param {string} query
+     * @param {number} limit
+     * @returns {Promise<Array>} List of matching users
+     */
+    async searchUsers(query, limit = 10) {
+        const searchRegex = new RegExp(query, 'i');
+        const filter = {
+            $or: [
+                { phoneNumber: searchRegex },
+                { firstName: searchRegex },
+                { lastName: searchRegex }
+            ]
         };
 
-        if (excludeUserId) {
-            query._id = { $ne: excludeUserId };
+        // If query is numeric, also search by exact baleId
+        if (!isNaN(query)) {
+            filter.$or.push({ baleId: Number(query) });
         }
 
-        const existing = await User.findOne(query);
-        return !existing;
-    }
-
-    // ============================================================================
-    // SERVER ACCESS MANAGEMENT (MULTI-SERVER ACL)
-    // ============================================================================
-
-    /**
-     * Checks if a reseller is authorized to create clients on a specific server.
-     * @returns {Promise<boolean>}
-     */
-    async checkServerAccess(userId, serverId) {
-        const user = await User.findById(userId);
-        if (!user) throw new Error('User not found');
-        if (!user.isActive) throw new Error('User is suspended');
-
-        // Business Rule: Empty array means the user is a VIP/Global reseller
-        // who has access to ALL active servers.
-        if (!user.allowedServers || user.allowedServers.length === 0) {
-            return true;
-        }
-
-        return user.allowedServers.includes(serverId);
+        return User.find(filter).limit(limit).sort({ createdAt: -1 });
     }
 
     /**
-     * Completely overrides the allowed servers list for a user.
-     * Pass an empty array [] to grant global access.
+     * Retrieves the top users based on total tokens consumed.
+     * Excellent for identifying power users.
+     * @param {number} limit
+     * @returns {Promise<Array>}
      */
-    async assignServers(userId, serverIdsArray) {
-        return await User.findByIdAndUpdate(
-            userId,
-            { $set: { allowedServers: serverIdsArray } },
-            { returnDocument: 'after' }
-        );
+    async getTopConsumers(limit = 10) {
+        return User.find({ totalTokensUsed: { $gt: 0 } })
+            .sort({ totalTokensUsed: -1 })
+            .limit(limit)
+            .select('firstName lastName phoneNumber totalTokensUsed creditBalance');
     }
 
     /**
-     * Grants access to a single specific server.
-     * Uses $addToSet to prevent duplicate IDs in the array.
+     * Retrieves the total count of users in the system.
+     * @param {Object} filter - Optional filters (e.g., { isActive: true })
+     * @returns {Promise<number>}
      */
-    async grantServerAccess(userId, serverId) {
-        return await User.findByIdAndUpdate(
-            userId,
-            { $addToSet: { allowedServers: serverId } },
-            { returnDocument: 'after' }
-        );
-    }
-
-    /**
-     * Revokes access from a single specific server.
-     */
-    async revokeServerAccess(userId, serverId) {
-        return await User.findByIdAndUpdate(
-            userId,
-            { $pull: { allowedServers: serverId } },
-            { returnDocument: 'after' }
-        );
-    }
-
-    /**
-     * Gets a fully populated list of servers the user has access to.
-     */
-    async getUserAllowedServers(userId) {
-        const user = await User.findById(userId).populate('allowedServers');
-        if (!user) throw new Error('User not found');
-
-        return user.allowedServers; // Returns an array of Server objects
+    async getUsersCount(filter = {}) {
+        return User.countDocuments(filter);
     }
 }
 
