@@ -13,14 +13,14 @@ const UserSchema = new mongoose.Schema({
         type: Number,
         required: true,
         unique: true,
-        index: true, // Crucial for fast lookups during incoming bot updates
+        index: true,
         description: 'Unique identifier provided by Bale platform'
     },
     phoneNumber: {
         type: String,
-        required: true,
+        required: false, // KYC is delayed until checkout
         unique: true,
-        index: true, // Crucial for login and manual receipt tracking
+        sparse: true, // Allows multiple users to have null values in a unique index
         description: 'User phone number retrieved via contact request'
     },
     firstName: {
@@ -47,40 +47,38 @@ const UserSchema = new mongoose.Schema({
     creditBalance: {
         type: Number,
         default: CONSTANTS.DEFAULTS.FREE_CREDIT_TOKENS,
-        min: 0, // Prevents negative balance
-        description: 'Current available tokens for AI usage. Initiated with free credits.'
+        min: 0,
+        description: 'Current available tokens for AI usage.'
     },
     totalTokensUsed: {
         type: Number,
         default: 0,
-        description: 'Cumulative sum of all tokens consumed by the user for analytics'
+        description: 'Cumulative sum of all tokens consumed.'
     },
     totalMoneySpent: {
         type: Number,
         default: 0,
-        description: 'Total money (in IRT) the user has spent successfully. Used for calculating User Lifetime Value (LTV).'
+        description: 'Total money (in IRT) the user has spent.'
     },
     successfulAiRequests: {
         type: Number,
         default: 0,
-        description: 'Counter for successful AI interactions. Used to trigger the askReview method at 5.'
+        description: 'Counter for successful AI interactions.'
     },
     hasAskedReview: {
         type: Boolean,
         default: false,
-        description: 'Flag to prevent spamming the review request after the first successful prompt'
+        description: 'Flag for review request logic.'
     },
     isActive: {
         type: Boolean,
         default: true,
-        description: 'Flag to indicate if the user account is active or banned by the admin'
+        description: 'Account status flag.'
     }
 }, {
-    // Automatically manages createdAt and updatedAt fields
     timestamps: true
 });
 
-// Create compound index if needed in the future, but single indexes on baleId and phoneNumber are sufficient for now.
 const User = mongoose.model('User', UserSchema);
 
 module.exports = User;

@@ -5,6 +5,7 @@ services:
     image: mongo:latest
     container_name: bale_ai_mongo_db
     restart: unless-stopped
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
     ports:
       # Exposing on 27019 to prevent conflicts with other MongoDB instances (like 27017 or 27018)
       - "27019:27017"

@@ -24,9 +24,9 @@ class UserService {
         let user = await User.findOne({ baleId: baleUserObj.id });
 
         if (!user) {
-            user = await User.create({
+            // Build payload dynamically to avoid passing explicit 'null' values to sparse indexes
+            const payload = {
                 baleId: baleUserObj.id,
-                phoneNumber: phoneNumber,
                 firstName: baleUserObj.first_name || 'کاربر',
                 lastName: baleUserObj.last_name || null,
                 username: baleUserObj.username || null,
@@ -35,7 +35,14 @@ class UserService {
                     ? CONSTANTS.ROLES.ADMIN
                     : CONSTANTS.ROLES.USER,
                 creditBalance: CONSTANTS.DEFAULTS.FREE_CREDIT_TOKENS
-            });
+            };
+
+            // CRITICAL FIX: Only add phoneNumber if it has a truthy value.
+            if (phoneNumber) {
+                payload.phoneNumber = phoneNumber;
+            }
+
+            user = await User.create(payload);
         }
         return user;
     }
@@ -65,7 +72,8 @@ class UserService {
      * @returns {Promise<Object>} Updated User document
      */
     async updateUser(userId, updateData) {
-        return User.findByIdAndUpdate(userId, updateData, { new: true });
+        // Modern Mongoose standard: returnDocument: 'after' replaces new: true
+        return User.findByIdAndUpdate(userId, updateData, { returnDocument: 'after' });
     }
 
     // ==========================================
@@ -98,7 +106,7 @@ class UserService {
                     totalTokensUsed: Math.abs(tokensToDeduct)
                 }
             },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -112,7 +120,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { $inc: { creditBalance: Math.abs(tokensToAdd) } },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -126,7 +134,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { $inc: { totalMoneySpent: Math.abs(amountIrt) } },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -143,7 +151,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { $inc: { successfulAiRequests: 1 } },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -156,7 +164,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { hasAskedReview: true },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -173,7 +181,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { role: CONSTANTS.ROLES.ADMIN },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -186,7 +194,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { isActive: false },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -199,7 +207,7 @@ class UserService {
         return User.findByIdAndUpdate(
             userId,
             { isActive: true },
-            { new: true }
+            { returnDocument: 'after' }
         );
     }
 
@@ -245,7 +253,6 @@ class UserService {
             ]
         };
 
-        // If query is numeric, also search by exact baleId
         if (!isNaN(query)) {
             filter.$or.push({ baleId: Number(query) });
         }
@@ -255,7 +262,6 @@ class UserService {
 
     /**
      * Retrieves the top users based on total tokens consumed.
-     * Excellent for identifying power users.
      * @param {number} limit
      * @returns {Promise<Array>}
      */
@@ -268,7 +274,7 @@ class UserService {
 
     /**
      * Retrieves the total count of users in the system.
-     * @param {Object} filter - Optional filters (e.g., { isActive: true })
+     * @param {Object} filter - Optional filters
      * @returns {Promise<number>}
      */
     async getUsersCount(filter = {}) {

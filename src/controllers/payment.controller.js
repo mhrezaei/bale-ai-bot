@@ -179,7 +179,8 @@ class PaymentController {
             const transaction = await PaymentService.verifyBalePayment(transactionId, baleChargeId);
 
             // 2. Log the user action
-            await ActionLogService.logUserAction(transaction.user, 'BALE_WALLET_SUCCESS', {
+            // CRITICAL FIX: Changed from BALE_WALLET_SUCCESS to WALLET_PAYMENT_SUCCESS to match CONSTANTS
+            await ActionLogService.logUserAction(transaction.user, 'WALLET_PAYMENT_SUCCESS', {
                 amount: transaction.amountIrt,
                 chargeId: baleChargeId
             });

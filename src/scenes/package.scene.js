@@ -142,12 +142,12 @@ const packageWizard = new Scenes.WizardScene(
             // Acknowledge loading state
             const loadingMsg = await ctx.reply('⏳ در حال ثبت در سیستم...').catch(() => null);
 
-            // Create package via Service
-            await PackageService.createPackage(
-                ctx.scene.state.title,
-                ctx.scene.state.tokenAmount,
-                ctx.scene.state.priceIrt
-            );
+            // Create package via Service - FIXED: Passing as an Object
+            await PackageService.createPackage({
+                title: ctx.scene.state.title,
+                tokenAmount: ctx.scene.state.tokenAmount,
+                priceIrt: ctx.scene.state.priceIrt
+            });
 
             if (loadingMsg) {
                 ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
