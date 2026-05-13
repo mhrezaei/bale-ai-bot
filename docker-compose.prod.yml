@@ -28,7 +28,7 @@ services:
     restart: always
     ports:
       # Webhook port exposed to localhost for Nginx proxying
-      - "127.0.0.1:3113:3113"
+      - "127.0.0.1:3113:3110"
     env_file:
       - .env.production
     depends_on:
