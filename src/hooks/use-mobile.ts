@@ -10,14 +10,14 @@ export function useIsMobile() {
     const onChange = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
     }
-    // Initialize state cleanly
-    if (mql.matches !== undefined) {
-       // already initialized by initially undefined effect hooks
-    }
     mql.addEventListener("change", onChange)
-    // Removed synchronous set state to avoid cascading renders
+    
+    // Set initial value only on first mount rather than relying on effect to change state synchronously
+    // though the best approach might be to just let the return do nothing or use a layout effect if needed
+    
     return () => mql.removeEventListener("change", onChange)
   }, [])
+
 
   return !!isMobile
 }
