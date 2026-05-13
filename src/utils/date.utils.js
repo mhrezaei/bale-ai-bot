@@ -1,15 +1,18 @@
-const moment = require('moment-jalaali');
+// File Path: src/utils/date.utils.js
+
+const moment = require('jalali-moment');
 
 /**
  * DateUtils
- * Centralized Date & Time Management.
- * Wraps moment-jalaali to decouple external libraries from core business logic.
+ * Centralized Date & Time Management for the AI Assistant.
+ * Ensures the database stores pure UTC Date objects, while the application
+ * always presents dates in the 'Asia/Tehran' timezone and Jalali (Shamsi) calendar.
  */
 class DateUtils {
     /**
      * Converts standard English digits to Persian digits.
-     * @param {string|number} str
-     * @returns {string} The string containing Persian digits
+     * @param {string|number} str - The string containing English digits
+     * @returns {string} The string with Persian digits
      */
     toPersianDigits(str) {
         if (str === null || str === undefined) return '';
@@ -18,66 +21,70 @@ class DateUtils {
     }
 
     /**
-     * Formats a timestamp or Date object to Shamsi format.
-     * Handles unlimited (0) and pending activation (< 0) timestamps used by X-UI.
-     * @param {Date|number} timestamp - The Date object or epoch milliseconds
-     * @param {string} format - Default is 'jYYYY/jMM/jDD HH:mm'
-     * @param {boolean} usePersianDigits - If true, converts output digits to Persian
-     * @returns {string} Formatted date string
+     * Formats a MongoDB UTC Date object or epoch timestamp to a Shamsi string.
+     * Automatically handles the conversion to local Tehran time (due to server TZ).
+     * @param {Date|number|string} date - The UTC Date object or timestamp
+     * @param {string} format - Default format 'jYYYY/jMM/jDD HH:mm'
+     * @param {boolean} usePersianDigits - If true, outputs in Persian typography
+     * @returns {string} Formatted Jalali date string
      */
-    formatShamsi(timestamp, format = 'jYYYY/jMM/jDD HH:mm', usePersianDigits = true) {
-        // 0 means unlimited expiry in X-UI
-        if (timestamp === 0) return 'نامحدود';
+    formatShamsi(date, format = 'jYYYY/jMM/jDD HH:mm', usePersianDigits = true) {
+        if (!date) return '';
 
-        // Negative timestamps represent "Start on Initial Use" before the first connection
-        if (timestamp < 0) return 'در انتظار اتصال';
-
-        const formattedDate = moment(timestamp).format(format);
+        // Convert the input to a jalali-moment object and format it
+        const formattedDate = moment(date).locale('fa').format(format);
         return usePersianDigits ? this.toPersianDigits(formattedDate) : formattedDate;
     }
 
     /**
-     * Calculates the exact Gregorian Start and End Date objects for a specific Shamsi month.
-     * Critical for MongoDB aggregation queries ($gte, $lte).
-     * @param {number|string} jYear - e.g., 1403
-     * @param {number|string} jMonth - e.g., 05
-     * @returns {Object} { start: Date, end: Date }
+     * Generates a "Time Ago" or "Time Left" string in Persian.
+     * Useful for showing when a user last interacted or when their token package expires.
+     * @param {Date|number} date - The target date
+     * @returns {string} Human-readable relative time in Persian
+     */
+    timeAgoPersian(date) {
+        if (!date) return '';
+        return moment(date).locale('fa').fromNow();
+    }
+
+    /**
+     * Calculates the exact UTC Date bounds (Start and End) for a specific Shamsi month.
+     * Critical for MongoDB aggregation queries (e.g., fetching total AI usage for "Mordad").
+     * @param {number|string} jYear - Jalali year (e.g., 1403)
+     * @param {number|string} jMonth - Jalali month (e.g., 05)
+     * @returns {Object} { start: Date, end: Date } - Pure UTC Date objects for DB queries
      */
     getShamsiMonthBounds(jYear, jMonth) {
-        const start = moment(`${jYear}/${jMonth}/01`, 'jYYYY/jMM/jDD').startOf('day').toDate();
-        const end = moment(`${jYear}/${jMonth}/01`, 'jYYYY/jMM/jDD').endOf('jMonth').toDate();
+        // Parse the first day of the Jalali month
+        const startOfMonth = moment(`${jYear}/${jMonth}/01`, 'jYYYY/jMM/jDD');
+
+        // Start of day in UTC
+        const start = startOfMonth.startOf('day').toDate();
+        // End of the Jalali month in UTC
+        const end = startOfMonth.endOf('jMonth').toDate();
+
         return { start, end };
     }
 
     /**
-     * Returns a Date object exactly N days ago from the current moment.
-     * Used for building time-series data charts.
-     * @param {number} days
-     * @returns {Date}
+     * Returns a pure UTC Date object exactly N days ago from now.
+     * Essential for building time-series data charts in the Admin Dashboard.
+     * @param {number} days - Number of days to subtract
+     * @returns {Date} UTC Date object
      */
     getPastDate(days) {
         return moment().subtract(days, 'days').toDate();
     }
 
     /**
-     * Gets a formatted Shamsi date string for N days ago.
-     * @param {number} daysAgo
-     * @param {string} format
-     * @returns {string}
-     */
-    getPastShamsiDateString(daysAgo, format = 'jYYYY-jMM-jDD') {
-        return moment().subtract(daysAgo, 'days').format(format);
-    }
-
-    /**
-     * Calculates a future epoch timestamp based on the number of days provided.
-     * Useful for setting expiry times during client creation or extension.
-     * @param {number} days - Number of days to add. Pass 0 for unlimited.
-     * @returns {number} Epoch timestamp in milliseconds
+     * Returns a pure UTC Date object N days in the future.
+     * Useful if you implement time-limited subscription packages in the future.
+     * @param {number} days - Number of days to add
+     * @returns {Date} UTC Date object
      */
     addDaysToNow(days) {
-        if (!days || days === 0) return 0; // Unlimited
-        return Date.now() + (days * 24 * 60 * 60 * 1000);
+        if (!days) return new Date();
+        return moment().add(days, 'days').toDate();
     }
 }
 

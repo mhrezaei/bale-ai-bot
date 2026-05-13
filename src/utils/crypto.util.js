@@ -1,23 +1,27 @@
-const crypto = require('crypto');
-const config = require('../config/env'); // Bind to the centralized configuration system
+// File Path: src/utils/crypto.util.js
 
-// Load encryption key from environment configuration
-const ENCRYPTION_KEY = config.encryptionKey;
+const crypto = require('crypto');
+const config = require('../config/env');
+
 const ALGORITHM = 'aes-256-cbc';
-const IV_LENGTH = 16; // IV length is always 16 bytes for AES algorithms
+const IV_LENGTH = 16; // Initialization Vector length is always 16 bytes for AES algorithms
 
 /**
  * Crypto Utility
- * Provides robust AES-256-CBC encryption/decryption for sensitive data (e.g., server passwords).
- * Ensures that if the database is compromised, the credentials remain secure.
+ * Provides robust AES-256-CBC encryption/decryption for sensitive data.
+ * Ensures that if the database is compromised, sensitive credentials remain secure.
  */
 class CryptoUtil {
     constructor() {
-        // Ensure the encryption key is exactly 32 bytes long
-        if (!ENCRYPTION_KEY || Buffer.from(ENCRYPTION_KEY).length !== 32) {
-            console.error('[FATAL] ENCRYPTION_KEY is missing or not exactly 32 bytes long in .env');
+        if (!config.encryptionKey) {
+            console.error('[FATAL] ENCRYPTION_KEY is missing in the environment variables.');
             process.exit(1);
         }
+
+        // [BEST PRACTICE] Instead of strictly checking for a 32-byte string and crashing,
+        // we use SHA-256 to hash the provided environment key.
+        // This guarantees a consistent and secure 32-byte buffer regardless of the input string length.
+        this.key = crypto.createHash('sha256').update(String(config.encryptionKey)).digest();
     }
 
     /**
@@ -30,11 +34,11 @@ class CryptoUtil {
 
         try {
             const iv = crypto.randomBytes(IV_LENGTH);
-            const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
-            let encrypted = cipher.update(text, 'utf8', 'hex');
+            const cipher = crypto.createCipheriv(ALGORITHM, this.key, iv);
+            let encrypted = cipher.update(String(text), 'utf8', 'hex');
             encrypted += cipher.final('hex');
 
-            // Store both IV and the encrypted data separated by a colon
+            // Store both Initialization Vector (IV) and the encrypted data separated by a colon
             return `${iv.toString('hex')}:${encrypted}`;
         } catch (error) {
             console.error('[CryptoUtil] Encryption failed:', error.message);
@@ -48,15 +52,17 @@ class CryptoUtil {
      * @returns {string} The decrypted plain text.
      */
     decrypt(encryptedText) {
-        // Return original text if empty or lacks the custom separator format
-        if (!encryptedText || !encryptedText.includes(':')) return encryptedText;
+        // Return original text if it's empty, not a string, or lacks the custom separator format
+        if (!encryptedText || typeof encryptedText !== 'string' || !encryptedText.includes(':')) {
+            return encryptedText;
+        }
 
         try {
             const textParts = encryptedText.split(':');
             const iv = Buffer.from(textParts.shift(), 'hex');
             const encryptedData = Buffer.from(textParts.join(':'), 'hex');
 
-            const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(ENCRYPTION_KEY), iv);
+            const decipher = crypto.createDecipheriv(ALGORITHM, this.key, iv);
             let decrypted = decipher.update(encryptedData, 'hex', 'utf8');
             decrypted += decipher.final('utf8');
 

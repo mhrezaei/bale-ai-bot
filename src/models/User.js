@@ -1,123 +1,86 @@
+// File Path: src/models/User.js
+
 const mongoose = require('mongoose');
+const CONSTANTS = require('../config/constants');
 
 /**
  * User Schema
- * Handles Master Admins, Resellers, and Ghost (Proxy) Users.
- * Implements Unified Volume Quota, Multi-Currency Debt Ledger, and Custom Tariffs.
- * Upgraded with Broadcast Interception Queue (unreadBroadcasts).
+ * Defines the structure for storing user data, authentication, and token economy.
+ * Follows Mongoose best practices with proper indexing and data validation.
  */
-const userSchema = new mongoose.Schema(
-    {
-        // --- Identity & Authentication ---
-        telegramId: {
-            type: Number,
-            unique: true,
-            sparse: true, // Allows null for Ghost users
-            index: true,
-        },
-        isGhost: {
-            type: Boolean,
-            default: false,
-            index: true,
-        },
-        role: {
-            type: String,
-            enum: ['ADMIN', 'RESELLER'],
-            required: true,
-            default: 'RESELLER',
-        },
-        name: {
-            type: String,
-            required: true,
-            trim: true,
-        },
-        resellerCode: {
-            type: String,
-            trim: true,
-            uppercase: true,
-            unique: true,
-            sparse: true,
-            index: true,
-        },
-        isActive: {
-            type: Boolean,
-            default: true,
-            index: true,
-        },
-
-        // --- Custom Pricing (Tariffs) ---
-        // Allows overriding the default server prices for specific VIP resellers
-        customTariffs: {
-            IRT: {
-                type: Number,
-                default: null, // If null, the system uses the default IRT Server price
-            },
-            EUR: {
-                type: Number,
-                default: null, // If null, the system uses the default EUR Server price
-            }
-        },
-
-        // --- Multi-Server Access Control ---
-        allowedServers: [
-            {
-                type: mongoose.Schema.Types.ObjectId,
-                ref: 'Server',
-            }
-        ],
-
-        // --- Quota & Volume Management ---
-        totalQuotaGB: {
-            type: Number,
-            default: 0, // The total gross capacity granted to the reseller by Admin
-        },
-        allocatedQuotaGB: {
-            type: Number,
-            default: 0, // The sum of GBs assigned to active configs (Regardless of actual end-user usage)
-        },
-
-        // --- Multi-Currency Debt Ledger ---
-        // Automatically populated by FinanceService when quota is allocated
-        // Example: { "IRT": 2500000, "EUR": 45 }
-        debts: {
-            type: Map,
-            of: Number,
-            default: {},
-        },
-
-        // --- Marketing & Testing Limits ---
-        dailyTestLimit: {
-            type: Number,
-            default: 10, // Max free test accounts allowed per day (Bypasses Quota & Debt)
-        },
-
-        // ==========================================
-        // 📢 NEW: Broadcast & Interception System
-        // ==========================================
-        unreadBroadcasts: [{
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'Broadcast',
-            description: 'Queue of mandatory announcements the user has not yet acknowledged'
-        }]
+const UserSchema = new mongoose.Schema({
+    baleId: {
+        type: Number,
+        required: true,
+        unique: true,
+        index: true, // Crucial for fast lookups during incoming bot updates
+        description: 'Unique identifier provided by Bale platform'
     },
-    {
-        timestamps: true,
+    phoneNumber: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true, // Crucial for login and manual receipt tracking
+        description: 'User phone number retrieved via contact request'
+    },
+    firstName: {
+        type: String,
+        required: true,
+        description: 'First name retrieved from Bale profile or contact'
+    },
+    lastName: {
+        type: String,
+        default: null,
+        description: 'Last name retrieved from Bale profile or contact'
+    },
+    username: {
+        type: String,
+        default: null,
+        description: 'Username retrieved from Bale profile'
+    },
+    role: {
+        type: String,
+        enum: Object.values(CONSTANTS.ROLES),
+        default: CONSTANTS.ROLES.USER,
+        description: 'Role-Based Access Control (RBAC) - e.g., ADMIN, USER'
+    },
+    creditBalance: {
+        type: Number,
+        default: CONSTANTS.DEFAULTS.FREE_CREDIT_TOKENS,
+        min: 0, // Prevents negative balance
+        description: 'Current available tokens for AI usage. Initiated with free credits.'
+    },
+    totalTokensUsed: {
+        type: Number,
+        default: 0,
+        description: 'Cumulative sum of all tokens consumed by the user for analytics'
+    },
+    totalMoneySpent: {
+        type: Number,
+        default: 0,
+        description: 'Total money (in IRT) the user has spent successfully. Used for calculating User Lifetime Value (LTV).'
+    },
+    successfulAiRequests: {
+        type: Number,
+        default: 0,
+        description: 'Counter for successful AI interactions. Used to trigger the askReview method at 5.'
+    },
+    hasAskedReview: {
+        type: Boolean,
+        default: false,
+        description: 'Flag to prevent spamming the review request after the first successful prompt'
+    },
+    isActive: {
+        type: Boolean,
+        default: true,
+        description: 'Flag to indicate if the user account is active or banned by the admin'
     }
-);
-
-// Compound index for fast Admin dashboard queries
-userSchema.index({ role: 1, isActive: 1 });
-
-/**
- * Virtual Field: remainingQuota
- * Calculates the exact available capacity for creating new configs.
- */
-userSchema.virtual('remainingQuota').get(function() {
-    return this.totalQuotaGB - this.allocatedQuotaGB;
+}, {
+    // Automatically manages createdAt and updatedAt fields
+    timestamps: true
 });
 
-// Ensure virtuals are included when converting documents to JSON
-userSchema.set('toJSON', { virtuals: true });
-userSchema.set('toObject', { virtuals: true });
+// Create compound index if needed in the future, but single indexes on baleId and phoneNumber are sufficient for now.
+const User = mongoose.model('User', UserSchema);
 
-module.exports = mongoose.model('User', userSchema);
+module.exports = User;

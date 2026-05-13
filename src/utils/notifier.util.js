@@ -1,22 +1,24 @@
-const { Markup } = require('telegraf'); // [ADDED] Required for rendering inline keyboards
+// File Path: src/utils/notifier.util.js
+
+const { Markup } = require('telegraf');
 const config = require('../config/env');
 const numberUtils = require('./number.utils');
-const lang = require('../locales/fa'); // [NEW] Centralized language and templates
 
 /**
  * Notifier Utility
- * A comprehensive message broker for sending alerts, audit logs, and interactive
- * notifications to both the Master Admin and Resellers.
- * Designed to be non-blocking, fail-safe, and fully decoupled from controllers.
+ * A robust message broker for sending alerts, audit logs, and transaction
+ * notifications to both the Master Admin and Bot Users.
+ * Designed to be non-blocking and fully decoupled from controllers.
  */
 class NotifierUtil {
     constructor() {
         this.bot = null;
-        this.adminId = config.adminTelegramId;
+        this.adminId = config.adminBaleId;
     }
 
     /**
      * Initializes the notifier with the active Telegraf bot instance.
+     * Must be called once during bot startup.
      * @param {Object} botInstance - The initialized Telegraf bot instance.
      */
     init(botInstance) {
@@ -30,9 +32,9 @@ class NotifierUtil {
 
     /**
      * Base method to send a text message safely.
-     * @param {number|string} targetId - Telegram Chat ID (Admin or Reseller).
+     * @param {number|string} targetId - Bale Chat ID.
      * @param {string} text - Formatted Markdown text.
-     * @param {Object} options - Extra Telegram API options (e.g., reply_markup).
+     * @param {Object} options - Extra Telegram/Bale API options.
      */
     async _sendSafeMessage(targetId, text, options = {}) {
         if (!this.bot || !targetId) return;
@@ -48,17 +50,17 @@ class NotifierUtil {
     }
 
     /**
-     * Base method to send a photo with a caption safely.
-     * @param {number|string} targetId - Telegram Chat ID.
-     * @param {string|Object} photoData - Telegram File ID or Buffer Object.
+     * Base method to send a photo safely.
+     * @param {number|string} targetId - Bale Chat ID.
+     * @param {string} photoFileId - Bale File ID for the photo.
      * @param {string} caption - Formatted Markdown caption.
-     * @param {Object} options - Extra Telegram API options (e.g., reply_markup).
+     * @param {Object} options - Extra Telegram/Bale API options.
      */
-    async _sendSafePhoto(targetId, photoData, caption, options = {}) {
-        if (!this.bot || !targetId) return;
+    async _sendSafePhoto(targetId, photoFileId, caption, options = {}) {
+        if (!this.bot || !targetId || !photoFileId) return;
 
         try {
-            await this.bot.telegram.sendPhoto(targetId, photoData, {
+            await this.bot.telegram.sendPhoto(targetId, photoFileId, {
                 caption: caption,
                 parse_mode: 'Markdown',
                 ...options
@@ -69,144 +71,100 @@ class NotifierUtil {
     }
 
     // ==========================================
-    // 👑 ADMIN ALERTS & AUDITS
+    // 👑 ADMIN ALERTS
     // ==========================================
 
     /**
-     * Sends an interactive receipt approval request to the Admin.
+     * Alerts the admin when a new user registers in the bot.
+     * @param {string} name - User's name.
+     * @param {string} phone - User's phone number.
      */
-    async sendReceiptToAdmin(transactionId, resellerName, amount, photoFileId) {
-        const caption = lang.finance.adminReceiptAlert(resellerName, amount);
+    async alertNewUser(name, phone) {
+        const text = `👤 **کاربر جدید ثبت‌نام کرد**\n\nنام: ${name}\nموبایل: \`${phone}\``;
+        return this._sendSafeMessage(this.adminId, text, { disable_notification: true });
+    }
 
-        // Pure JSON inline keyboard to avoid Telegraf Markup dependency
-        const options = {
-            reply_markup: {
-                inline_keyboard: [
-                    [
-                        { text: lang.buttons.finance.approveReceipt, callback_data: `approve_receipt_${transactionId}` },
-                        { text: lang.buttons.finance.rejectReceipt, callback_data: `reject_receipt_${transactionId}` }
-                    ]
-                ]
-            }
-        };
+    /**
+     * Sends an interactive manual receipt approval request to the Admin.
+     * @param {string} transactionId - DB Transaction ID.
+     * @param {string} userName - The user who sent the receipt.
+     * @param {number} amount - The transaction amount.
+     * @param {string} photoFileId - The Bale file_id of the receipt photo.
+     */
+    async sendReceiptToAdmin(transactionId, userName, amount, photoFileId) {
+        const formattedAmount = numberUtils.formatNumberWithCommas(amount);
+        const caption = `💳 **فیش بانکی جدید**\n\nکاربر: ${userName}\nمبلغ: ${formattedAmount} تومان\n\nلطفاً تایید یا رد کنید:`;
+
+        const options = Markup.inlineKeyboard([
+            [
+                Markup.button.callback('✅ تایید فیش', `approve_receipt:${transactionId}`),
+                Markup.button.callback('❌ رد فیش', `reject_receipt:${transactionId}`)
+            ]
+        ]);
 
         return this._sendSafePhoto(this.adminId, photoFileId, caption, options);
     }
 
     /**
-     * Alerts the admin when a server goes offline (Triggered by Health Worker).
+     * Alerts the admin when an online payment (Bale Wallet or ZarinPal) is successfully completed.
+     * @param {string} userName - The user who paid.
+     * @param {number} amount - The paid amount.
+     * @param {string} method - 'BALE_WALLET' or 'ZARINPAL'.
      */
-    async alertServerDown(serverName, errorMessage) {
-        const text = lang.alerts.serverDown(serverName, errorMessage);
-        return this._sendSafeMessage(this.adminId, text, { disable_notification: false }); // Critical alerts are NOT silent
-    }
-
-    /**
-     * Alerts the admin when a server recovers.
-     */
-    async alertServerRecovered(serverName) {
-        const text = lang.alerts.serverRecovered(serverName);
-        return this._sendSafeMessage(this.adminId, text, { disable_notification: false });
-    }
-
-    /**
-     * Logs general client actions (Creation, Edition, Deletion) silently to Admin.
-     */
-    async logClientAction(actionName, resellerName, clientEmail, detailsText) {
-        const text = lang.adminLogs.clientAction(actionName, resellerName, clientEmail, detailsText);
+    async alertSuccessfulPayment(userName, amount, method) {
+        const formattedAmount = numberUtils.formatNumberWithCommas(amount);
+        const gatewayName = method === 'BALE_WALLET' ? 'کیف پول بله' : 'زرین‌پال';
+        const text = `💰 **پرداخت آنلاین موفق**\n\nکاربر: ${userName}\nمبلغ: ${formattedAmount} تومان\nدرگاه: ${gatewayName}`;
         return this._sendSafeMessage(this.adminId, text, { disable_notification: true });
     }
 
     /**
-     * [NEW] Dedicated logger for financial transactions to avoid "N/A" account fields.
-     */
-    async logFinanceAction(actionName, resellerName, amountText) {
-        const text = lang.adminLogs.financeAction(actionName, resellerName, amountText);
-        return this._sendSafeMessage(this.adminId, text, { disable_notification: true });
-    }
-
-    /**
-     * Logs single client creations explicitly to prevent Wizard crashes.
-     */
-    async logClientCreation(resellerName, clientEmail, detailsText) {
-        return this.logClientAction('ساخت کانفیگ جدید', resellerName, clientEmail, detailsText);
-    }
-
-    /**
-     * Logs Bulk test creations explicitly to prevent Wizard crashes.
-     */
-    async logBulkCreation(resellerName, count, volume) {
-        const details = `تعداد: ${numberUtils.toPersianDigits(count)} عدد\nحجم هرکدام: ${numberUtils.toPersianDigits(volume)} گیگابایت`;
-        return this.logClientAction('ساخت تست گروهی (Bulk)', resellerName, 'چندین اکانت', details);
-    }
-
-    /**
-     * Logs critical system/worker errors to the Admin.
+     * Logs critical system errors to the Admin.
+     * @param {string} context - Where the error happened (e.g., 'OpenAI API').
+     * @param {string} errorMessage - The exact error message.
      */
     async logSystemError(context, errorMessage) {
         const text = `⚠️ **خطای سیستمی در بخش: ${context}**\n\n\`${errorMessage}\``;
-        return this._sendSafeMessage(this.adminId, text, { disable_notification: true });
+        return this._sendSafeMessage(this.adminId, text, { disable_notification: false });
     }
 
     // ==========================================
-    // 💼 RESELLER & CLIENT NOTIFICATIONS
+    // 👤 USER NOTIFICATIONS
     // ==========================================
 
     /**
-     * Notifies the reseller about the status of their submitted receipt.
+     * Notifies the user about the result of their submitted receipt.
+     * @param {number|string} targetTelegramId - User's Bale ID.
+     * @param {boolean} isApproved - True if approved, false if rejected.
+     * @param {number} amount - Transaction amount.
+     * @param {string} [adminNote] - Optional reason for rejection.
      */
-    async notifyReceiptResult(resellerTelegramId, isApproved, amount) {
-        const text = isApproved
-            ? lang.finance.receiptApproved(amount)
-            : lang.finance.receiptRejected;
+    async notifyReceiptResult(targetTelegramId, isApproved, amount, adminNote = null) {
+        const formattedAmount = numberUtils.formatNumberWithCommas(amount);
+        let text = '';
 
-        return this._sendSafeMessage(resellerTelegramId, text);
-    }
-
-    /**
-     * Alerts the reseller when an account is automatically disabled or hits a limit.
-     */
-    async notifyResellerAction(resellerTelegramId, actionTitle, message) {
-        const text = `🔔 **اطلاعیه سرویس: ${actionTitle}**\n\n${message}`;
-        return this._sendSafeMessage(resellerTelegramId, text);
-    }
-
-    /**
-     * Alerts the reseller if a financial rollback occurred (e.g., config creation failed).
-     */
-    async notifyRollback(resellerTelegramId, clientEmail, refundedAmount, currency = 'IRT') {
-        const text = lang.alerts.rollback(clientEmail, refundedAmount, currency);
-        return this._sendSafeMessage(resellerTelegramId, text);
-    }
-
-    /**
-     * Asynchronously sends the final generated Config and QR code to the user.
-     * Called by the Worker after a successful X-UI panel creation.
-     * Upgraded to include Action Buttons (Share & Manage).
-     */
-    async sendAsyncConfigDelivery(targetTelegramId, qrBuffer, captionMessage, clientEmail = '') {
-        try {
-            if (!this.bot) return;
-
-            // Build interactive buttons dynamically
-            const buttons = [
-                // Text sharing button (Inline Query)
-                [Markup.button.switchToChat('اشتراک‌گذاری متنی 📤', `\n${captionMessage}`)]
-            ];
-
-            // Append manage button if email context is provided
-            if (clientEmail) {
-                buttons.push([Markup.button.callback('مدیریت این کانفیگ ⚙️', `manage_client:${clientEmail}:1`)]);
+        if (isApproved) {
+            text = `✅ **فیش شما تایید شد!**\n\nمبلغ ${formattedAmount} تومان به حساب شما منظور شد و توکن‌های مربوطه حساب گردید. از دستیار هوشمند خود لذت ببرید.`;
+        } else {
+            text = `❌ **فیش شما رد شد.**\n\nمبلغ فیش: ${formattedAmount} تومان\n\n`;
+            if (adminNote) {
+                text += `دلایل رد شدن:\n_${adminNote}_`;
+            } else {
+                text += `به دلیل ناخوانا بودن یا عدم تطابق، فیش شما مورد تایید قرار نگرفت.`;
             }
-
-            const options = {
-                ...Markup.inlineKeyboard(buttons)
-            };
-
-            return this._sendSafePhoto(targetTelegramId, { source: qrBuffer }, captionMessage, options);
-        } catch (error) {
-            console.error(`[Notifier] Failed to send async config delivery to ${targetTelegramId}:`, error.message);
         }
+
+        return this._sendSafeMessage(targetTelegramId, text);
+    }
+
+    /**
+     * General function to send a direct message to a specific user.
+     * Useful for sending announcements or warnings.
+     * @param {number|string} targetTelegramId - User's Bale ID.
+     * @param {string} message - Formatted Markdown text.
+     */
+    async sendMessageToUser(targetTelegramId, message) {
+        return this._sendSafeMessage(targetTelegramId, message);
     }
 }
 
