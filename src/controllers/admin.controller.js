@@ -11,7 +11,7 @@ const ActionLogService = require('../services/ActionLogService');
 const notifier = require('../utils/notifier.util');
 const lang = require('../locales/fa');
 const logger = require('../utils/logger.util');
-const dateUtils = require('../utils/date.utils');
+const dateUtils = require('../utils/date.util');
 
 /**
  * Admin Controller

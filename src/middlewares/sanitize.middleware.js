@@ -1,6 +1,6 @@
 // File Path: src/middlewares/sanitize.middleware.js
 
-const numberUtils = require('../utils/number.utils');
+const numberUtils = require('../utils/number.util');
 const logger = require('../utils/logger.util');
 
 /**

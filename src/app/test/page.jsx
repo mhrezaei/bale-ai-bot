@@ -1,6 +1,6 @@
 const dbConnect = require('../../lib/mongoose');
 const Client = require('../../models/Client');
-const { encodeId } = require('../../utils/hashids');
+const { encodeId } = require('../../utils/hashids.util.js');
 
 /**
  * Developer Testing Route.

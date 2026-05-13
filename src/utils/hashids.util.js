@@ -1,6 +1,6 @@
 // File Path: src/utils/hashids.util.js
 
-const Hashids = require('hashids/cjs'); // Using /cjs to ensure broad compatibility
+const HashidsUtil = require('hashids/cjs'); // Using /cjs to ensure broad compatibility
 const config = require('../config/env');
 
 /**
@@ -11,7 +11,7 @@ const config = require('../config/env');
 
 // Initialize Hashids with the centralized system encryption key to ensure hashes cannot be reversed by attackers.
 // Enforcing a minimum length of 6 characters for short, clean URLs.
-const hashids = new Hashids(config.encryptionKey || 'BaleAiBot-Fallback-Salt-2026', 6);
+const hashids = new HashidsUtil(config.encryptionKey || 'BaleAiBot-Fallback-Salt-2026', 6);
 
 class HashidsUtil {
     /**

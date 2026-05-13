@@ -1,4 +1,4 @@
-// File Path: src/utils/number.utils.js
+// File Path: src/utils/number.util.js
 
 /**
  * Number & Currency Utility

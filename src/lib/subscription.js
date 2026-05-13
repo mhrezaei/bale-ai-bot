@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const dbConnect = require('./mongoose');
-const { decodeId } = require('../utils/hashids');
+const { decodeId } = require('../utils/hashids.util');
 const Client = require('../models/Client');
 const TrafficLog = require('../models/TrafficLog');
 

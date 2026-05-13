@@ -2,7 +2,7 @@
 
 const { Markup } = require('telegraf');
 const config = require('../config/env');
-const numberUtils = require('./number.utils');
+const numberUtils = require('./number.util');
 
 /**
  * Notifier Utility

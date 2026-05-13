@@ -1,4 +1,4 @@
-// File Path: src/utils/date.utils.js
+// File Path: src/utils/date.util.js
 
 const moment = require('jalali-moment');
 
@@ -8,7 +8,7 @@ const moment = require('jalali-moment');
  * Ensures the database stores pure UTC Date objects, while the application
  * always presents dates in the 'Asia/Tehran' timezone and Jalali (Shamsi) calendar.
  */
-class DateUtils {
+class DateUtil {
     /**
      * Converts standard English digits to Persian digits.
      * @param {string|number} str - The string containing English digits
@@ -88,4 +88,4 @@ class DateUtils {
     }
 }
 
-module.exports = new DateUtils();
+module.exports = new DateUtil();

@@ -1,7 +1,7 @@
 // File Path: src/locales/fa.js
 
-const numberUtils = require('../utils/number.utils');
-const dateUtils = require('../utils/date.utils');
+const numberUtils = require('../utils/number.util');
+const dateUtils = require('../utils/date.util');
 
 /**
  * Persian Locales & Message Templates (AI Assistant Edition)
