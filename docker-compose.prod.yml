@@ -44,6 +44,7 @@ services:
     image: mongo:latest
     container_name: bale_ai_mongo_db
     restart: always
+    command: ["--replSet", "rs0", "--bind_ip_all", "--port", "27017"]
     ports:
       # Bound to localhost for secure remote debugging/access
       - "127.0.0.1:27019:27017"
