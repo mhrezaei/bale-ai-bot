@@ -9,7 +9,7 @@ require('dotenv').config({ path: path.resolve(process.cwd(), envFile) });
 /**
  * Ensures a required environment variable is present.
  * Halts the application execution if a critical variable is missing.
- * * @param {string} key - The environment variable key to check.
+ * @param {string} key - The environment variable key to check.
  * @returns {string} The value of the environment variable.
  */
 const requireEnv = (key) => {
@@ -23,14 +23,21 @@ const requireEnv = (key) => {
 
 const config = {
     // --- Core Bale Bot Settings ---
-    baleBotToken: requireEnv('BALE_BOT_TOKEN'),
+    // Standardized to match the property expected in bot.js
+    botToken: requireEnv('BALE_BOT_TOKEN'),
+    baleWalletToken: process.env.BALE_WALLET_TOKEN,
     adminBaleId: parseInt(requireEnv('ADMIN_BALE_ID'), 10),
+
+    // --- Webhook & Web Server Settings ---
+    webhookDomain: process.env.WEBHOOK_DOMAIN,
+    // Standardized port variable to ensure Express and Docker bind correctly
+    port: parseInt(process.env.PORT || process.env.WEB_PORT || '3110', 10),
+    clientBaseUrl: process.env.CLIENT_BASE_URL || 'http://localhost:3110',
 
     // --- AI Assistant Settings ---
     openAiApiKey: requireEnv('OPENAI_API_KEY'),
 
     // --- Payment Gateway Settings ---
-    // ZarinPal Merchant ID is optional for the MVP phase (manual receipt verification)
     zarinpalMerchantId: process.env.ZARINPAL_MERCHANT_ID || null,
 
     // --- Database Settings ---
@@ -39,12 +46,7 @@ const config = {
     // --- Security Settings ---
     encryptionKey: requireEnv('ENCRYPTION_KEY'),
 
-    // --- Web Dashboard Settings ---
-    // Port to listen on and the public-facing URL
-    webPort: parseInt(process.env.WEB_PORT || '3110', 10),
-    clientBaseUrl: process.env.CLIENT_BASE_URL || 'http://localhost:3110',
-
-    // --- Redis Settings (CRITICAL for Rate Limiting, BullMQ, and Conversation State) ---
+    // --- Redis Settings ---
     redis: {
         host: process.env.REDIS_HOST || '127.0.0.1',
         port: parseInt(process.env.REDIS_PORT || '6379', 10),

@@ -1,121 +1,139 @@
+// File Path: src/index.js
+
 /**
  * =======================================================
- * HEDIOUM VPN SYSTEM - ENTERPRISE BOOTSTRAP (BOT & WORKERS)
+ * AI ASSISTANT SYSTEM - ENTERPRISE BOOTSTRAP
  * =======================================================
  * Application Entry Point.
- * Orchestrates MongoDB, Redis, BullMQ Workers, and the Telegraf Bot.
- * Implements strict startup order and graceful shutdown procedures.
+ * Orchestrates MongoDB, Redis, BullMQ Workers, Express Web Server, and the Telegraf Bot.
+ * Uses Webhooks for high-performance updates from Bale Messenger.
  */
 
+const express = require('express');
 const mongoose = require('mongoose');
+const config = require('./config/env');
 const db = require('./core/db');
-const redisClient = require('./core/redis'); // Singleton Redis Connection
+const redisClient = require('./core/redis');
 const bot = require('./core/bot');
+const logger = require('./utils/logger.util');
 
-// --- Import Workers ---
-// We import them here, but we will explicitly start the Cron-based ones after DB connection
-const clientWorker = require('./workers/client.worker');     // BullMQ worker (starts automatically on instantiate)
-const healthWorker = require('./workers/health.worker');     // Cron-based
-const syncWorker = require('./workers/sync.worker');         // Cron-based
-const balancerWorker = require('./workers/balancer.worker'); // Cron-based
+// --- Import Background Workers ---
+// Importing them instantiates the BullMQ workers so they start listening to Redis queues
+const openaiWorker = require('./workers/openai.worker');
+const broadcastWorker = require('./workers/broadcast.worker');
+
+const app = express();
+const PORT = config.port || 3000;
+
+// A secure, randomized path for the webhook to prevent malicious external requests
+const WEBHOOK_PATH = `/api/webhook/bale/${config.botToken}`;
 
 /**
  * Main Bootstrap Function
- * Ensures sequential loading of all critical infrastructure components.
  */
 const bootstrap = async () => {
-    console.log('\n=============================================');
-    console.log('🚀 Starting Hedioum Bot & Worker Node... ');
-    console.log('=============================================\n');
+    logger.info('\n=============================================');
+    logger.info('🚀 Starting AI Assistant Bot & Worker Node... ');
+    logger.info('=============================================\n');
 
     try {
-        // 1. Initialize MongoDB (Critical Dependency)
+        // 1. Initialize MongoDB
         await db.connect();
-        console.log('✅ [System] MongoDB initialized successfully.');
+        logger.info('✅ [System] MongoDB initialized successfully.');
 
-        // 2. Redis Check (Ensure connection is ready for Sessions & BullMQ)
+        // 2. Wait for Redis connection to be fully ready
         if (redisClient.status !== 'ready') {
-            console.log('⏳ [System] Waiting for Redis connection...');
+            logger.info('⏳ [System] Waiting for Redis connection...');
             await new Promise((resolve) => redisClient.once('ready', resolve));
         }
-        console.log('✅ [System] Redis Cache & Queue layer is ready.');
+        logger.info('✅ [System] Redis Cache & BullMQ layer is ready.');
 
-        // 3. Start Background Workers
-        // CRITICAL: Must be started AFTER databases are fully connected
-        console.log('⏳ [System] Starting background workers...');
-        healthWorker.start();
-        syncWorker.start();
-        balancerWorker.start();
-        console.log('✅ [System] Background Workers started successfully.');
+        // 3. Workers are already initialized via imports. Just logging their status.
+        logger.info('✅ [System] Background Workers (OpenAI & Broadcast) are active.');
 
-        // 4. Launch Telegraf Bot
-        // We use non-blocking launch to prevent hanging on network proxy issues
-        bot.launch({ dropPendingUpdates: true })
-            .then(() => console.log('✅ [System] Bot is now actively polling Telegram.'))
-            .catch((err) => {
-                console.error('❌ [FATAL] Bot Launch failed:', err.message);
-                gracefulShutdown('BOT_CRASH');
-            });
+        // 4. Configure Express Web Server & Webhook
+        app.use(express.json()); // Essential for parsing incoming Bale webhook payloads
 
-        // 5. Verify Bot Identity
-        // If the proxy is disabled and the network is restricted, this might throw an error.
-        // Handled by the catch block to prevent running a zombie process.
-        const botInfo = await bot.telegram.getMe();
-        console.log(`🎉 [System] Bot connected successfully as: @${botInfo.username}\n`);
+        // Let Telegraf handle the requests coming to this secure path
+        app.use(bot.webhookCallback(WEBHOOK_PATH));
+
+        // Basic health check route for your monitoring tools
+        app.get('/health', (req, res) => res.status(200).send('OK'));
+
+        // 5. Start Express Server
+        const server = app.listen(PORT, async () => {
+            logger.info(`✅ [System] Express Web Server running on port ${PORT}`);
+
+            // 6. Tell Bale API to send updates to our Webhook URL
+            if (config.webhookDomain) {
+                const fullWebhookUrl = `${config.webhookDomain}${WEBHOOK_PATH}`;
+                await bot.telegram.setWebhook(fullWebhookUrl);
+                logger.info(`🎉 [System] Webhook successfully set to: ${config.webhookDomain}`);
+
+                const botInfo = await bot.telegram.getMe();
+                logger.info(`🤖 [System] Bot connected successfully as: @${botInfo.username}\n`);
+            } else {
+                logger.warn('⚠️ [System] "webhookDomain" is missing in .env. Bot will NOT receive updates via webhook.');
+                // Fallback to polling for local development if webhook is not set
+                logger.info('⏳ [System] Falling back to long-polling mode for local development...');
+                await bot.telegram.deleteWebhook();
+                bot.launch();
+            }
+        });
+
+        // Attach server to process for graceful shutdown
+        process.server = server;
 
     } catch (error) {
-        console.error('❌ [FATAL ERROR] Application Bootstrap Failed:');
-        console.error(error.message);
+        logger.error('❌ [FATAL ERROR] Application Bootstrap Failed:', error);
         process.exit(1);
     }
 };
 
 /**
  * Graceful Shutdown Logic
- * Ensures all connections and jobs are safely closed before exiting.
- * Prevents memory leaks and orphaned database locks.
+ * Prevents data corruption by closing all connections safely.
  */
 const gracefulShutdown = async (signal) => {
-    console.log(`\n⚠️ [${signal}] Graceful shutdown initiated...`);
+    logger.warn(`\n⚠️ [${signal}] Graceful shutdown initiated...`);
 
     try {
-        // 1. Stop Telegram Bot polling
-        if (bot) bot.stop(signal);
-        console.log('🛑 [Shutdown] Bot polling stopped.');
-
-        // 2. Stop BullMQ Worker to prevent orphaned jobs
-        if (clientWorker) {
-            await clientWorker.close();
-            console.log('🛑 [Shutdown] BullMQ Client worker closed safely.');
+        // 1. Stop Express Server (stop accepting new requests)
+        if (process.server) {
+            process.server.close(() => logger.info('🛑 [Shutdown] Web server closed.'));
         }
+
+        // 2. Stop BullMQ Workers to prevent orphaned jobs
+        if (openaiWorker) await openaiWorker.close();
+        if (broadcastWorker) await broadcastWorker.close();
+        logger.info('🛑 [Shutdown] Background workers closed safely.');
 
         // 3. Close Redis Connection
         if (redisClient) {
             await redisClient.quit();
-            console.log('🛑 [Shutdown] Redis connection closed.');
+            logger.info('🛑 [Shutdown] Redis connection closed.');
         }
 
         // 4. Close MongoDB Connection
         if (mongoose.connection.readyState === 1) {
             await mongoose.connection.close(false);
-            console.log('🛑 [Shutdown] MongoDB connection closed.');
+            logger.info('🛑 [Shutdown] MongoDB connection closed.');
         }
 
-        console.log('💤 [Shutdown] System exited safely.');
+        logger.info('💤 [Shutdown] System exited safely.');
         process.exit(0);
     } catch (error) {
-        console.error('❌ [Shutdown Error] Force exiting...', error);
+        logger.error('❌ [Shutdown Error] Force exiting...', error);
         process.exit(1);
     }
 };
 
-// Listen for termination signals from PM2, Docker, or Node.js (Ctrl+C)
+// Listen for termination signals (PM2, Docker, Ctrl+C)
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
-// Handle uncaught exceptions globally to prevent silent crashes
 process.on('uncaughtException', (err) => {
-    console.error('❌ [Uncaught Exception]:', err);
+    logger.error('❌ [Uncaught Exception]:', err);
     gracefulShutdown('UNCAUGHT_EXCEPTION');
 });
 
