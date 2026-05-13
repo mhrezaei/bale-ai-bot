@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  bale_ai_mongo:
+    image: mongo:latest
+    container_name: bale_ai_mongo_db
+    restart: unless-stopped
+    ports:
+      # Exposing on 27019 to prevent conflicts with other MongoDB instances (like 27017 or 27018)
+      - "27019:27017"
+    volumes:
+      - bale_ai_mongo_data:/data/db
+    environment:
+      # Timezone configuration for proper logging and data consistency
+      - TZ=Asia/Tehran
+
+  bale_ai_redis:
+    image: redis:alpine
+    container_name: bale_ai_redis_db
+    restart: unless-stopped
+    ports:
+      # Exposing on 6400 to prevent conflicts with standard Redis or previous projects
+      - "6400:6379"
+    volumes:
+      - bale_ai_redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    environment:
+      # Timezone configuration
+      - TZ=Asia/Tehran
+
+volumes:
+  bale_ai_mongo_data:
+  bale_ai_redis_data:

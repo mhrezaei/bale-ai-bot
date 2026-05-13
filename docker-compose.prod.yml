@@ -1,0 +1,79 @@
+version: '3.8'
+
+services:
+  # 1. Next.js Web Panel Service
+  bale_ai_panel:
+    build:
+      context: .
+      dockerfile: Dockerfile.panel
+    container_name: bale_ai_panel
+    restart: always
+    ports:
+      # Bound to localhost. Nginx will reverse proxy external traffic to this port.
+      - "127.0.0.1:3112:3110"
+    env_file:
+      - .env.production
+    depends_on:
+      - bale_ai_mongo
+      - bale_ai_redis
+    networks:
+      - bale_ai_network
+
+  # 2. Bale Bot Backend Service (With Webhook Support)
+  bale_ai_bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: bale_ai_bot
+    restart: always
+    ports:
+      # Webhook port exposed to localhost for Nginx proxying
+      - "127.0.0.1:3113:3113"
+    env_file:
+      - .env.production
+    depends_on:
+      - bale_ai_mongo
+      - bale_ai_redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - bale_ai_network
+
+  # 3. MongoDB Database Service
+  bale_ai_mongo:
+    image: mongo:latest
+    container_name: bale_ai_mongo_db
+    restart: always
+    ports:
+      # Bound to localhost for secure remote debugging/access
+      - "127.0.0.1:27019:27017"
+    volumes:
+      - bale_ai_mongo_data:/data/db
+    environment:
+      - TZ=Asia/Tehran
+    networks:
+      - bale_ai_network
+
+  # 4. Redis In-Memory Store Service
+  bale_ai_redis:
+    image: redis:alpine
+    container_name: bale_ai_redis_db
+    restart: always
+    ports:
+      # Bound to localhost for secure remote debugging/access
+      - "127.0.0.1:6400:6379"
+    volumes:
+      - bale_ai_redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    environment:
+      - TZ=Asia/Tehran
+    networks:
+      - bale_ai_network
+
+networks:
+  bale_ai_network:
+    driver: bridge
+
+volumes:
+  bale_ai_mongo_data:
+  bale_ai_redis_data:

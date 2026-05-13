@@ -1,0 +1,33 @@
+# ==========================================
+# Dependencies
+# ==========================================
+node_modules/
+
+# ==========================================
+# Next.js & Build outputs
+# ==========================================
+.next/
+out/
+build/
+dist/
+
+# ==========================================
+# Environment Variables (CRITICAL SECURITY)
+# ==========================================
+.env
+.env.local
+.env.development
+.env.production
+*.pem
+
+# ==========================================
+# Logs & OS Files
+# ==========================================
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+logs/
+*.log
+.idea
+.idea/*
