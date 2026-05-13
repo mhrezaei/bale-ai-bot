@@ -1,86 +1,68 @@
+// File Path: src/core/redis.js
+
 const Redis = require('ioredis');
 const config = require('../config/env');
+const logger = require('../utils/logger.util');
 
 /**
- * Redis Core Module
- * Implements the Singleton pattern to provide a shared Redis connection across the app.
- * Ensures efficient connection multiplexing for BullMQ, distributed locks, and sessions.
+ * Redis Core Connection
+ * Provides a highly resilient, singleton Redis connection using ioredis.
+ * Node.js module caching naturally enforces the Singleton pattern here.
  */
-class RedisService {
-    constructor() {
-        this.connection = null;
-        this.isReady = false;
-    }
 
-    /**
-     * Initializes and returns the Redis connection.
-     * Configured with robust retry strategies and error handling.
-     * @returns {Redis} The ioredis instance
-     */
-    getConnection() {
-        if (this.connection) {
-            return this.connection;
+const redisOptions = {
+    host: config.redis?.host || '127.0.0.1',
+    port: config.redis?.port || 6379,
+    db: config.redis?.db || 0,
+    password: config.redis?.password || undefined,
+
+    // [CRITICAL FOR BULLMQ]
+    // Must be set to null so that blocking commands (like BRPOPLPUSH used by workers)
+    // do not timeout and retry infinitely, causing memory leaks.
+    maxRetriesPerRequest: null,
+
+    // Advanced retry strategy for network blips (Exponential backoff capped at 3 seconds)
+    retryStrategy: (times) => {
+        const delay = Math.min(times * 100, 3000);
+        logger.warn(`[Redis] Retrying connection... Attempt: ${times} (Delay: ${delay}ms)`);
+        return delay;
+    },
+
+    // Reconnect on specific target errors automatically
+    reconnectOnError: (err) => {
+        const targetError = 'READONLY';
+        if (err.message.includes(targetError)) {
+            logger.warn('[Redis] Reconnecting due to READONLY error.');
+            return true;
         }
-
-        const redisOptions = {
-            host: config.redis.host,
-            port: config.redis.port,
-            db: config.redis.db,
-            password: config.redis.password, // Added to support production security
-
-            // Maximum number of times to retry a failed connection
-            retryStrategy: (times) => {
-                const delay = Math.min(times * 50, 2000);
-                console.log(`[Redis] Retrying connection... Attempt: ${times}`);
-                return delay;
-            },
-            // Reconnect even after fatal errors
-            reconnectOnError: (err) => {
-                const targetError = 'READONLY';
-                if (err.message.includes(targetError)) {
-                    return true;
-                }
-                return false;
-            },
-            // Performance optimization: disable ready check if speed is priority
-            maxRetriesPerRequest: null, // Required by BullMQ to handle blocking commands
-        };
-
-        this.connection = new Redis(redisOptions);
-
-        // --- Event Listeners for Operational Monitoring ---
-
-        this.connection.on('connect', () => {
-            console.log(`[Redis] Successfully connected to ${config.redis.host}:${config.redis.port}`);
-        });
-
-        this.connection.on('ready', () => {
-            this.isReady = true;
-            console.log(`[Redis] Connection is ready for operations on DB ${config.redis.db}`);
-        });
-
-        this.connection.on('error', (err) => {
-            console.error(`[Redis] Connection Error: ${err.message}`);
-        });
-
-        this.connection.on('close', () => {
-            this.isReady = false;
-            console.warn('[Redis] Connection closed.');
-        });
-
-        return this.connection;
+        return false;
     }
+};
 
-    /**
-     * Gracefully closes the connection during app shutdown.
-     */
-    async shutdown() {
-        if (this.connection) {
-            await this.connection.quit();
-            console.log('[Redis] Connection gracefully closed.');
-        }
-    }
-}
+// Instantiate the Redis client
+const redisClient = new Redis(redisOptions);
 
-// Exporting a singleton instance to be shared across the entire backend platform
-module.exports = new RedisService().getConnection();
+// ==========================================
+// 📡 Event Listeners for Operational Monitoring
+// ==========================================
+
+redisClient.on('connect', () => {
+    logger.info(`[Redis] Successfully connected to ${redisOptions.host}:${redisOptions.port}`);
+});
+
+redisClient.on('ready', () => {
+    logger.info(`[Redis] Connection is ready for operations on DB ${redisOptions.db}`);
+});
+
+redisClient.on('error', (err) => {
+    // We only log the error. ioredis handles the reconnection automatically via retryStrategy
+    logger.error(`[Redis] Connection Error: ${err.message}`);
+});
+
+redisClient.on('close', () => {
+    logger.warn('[Redis] Connection closed.');
+});
+
+// Exporting the raw ioredis instance directly.
+// To gracefully shut down in index.js, simply call: await redisClient.quit();
+module.exports = redisClient;
