@@ -4,7 +4,7 @@
 set -e
 
 echo "================================================="
-echo "🚀 Starting DonYar AI Production Deployment..."
+echo "🚀 Starting DanYar AI Production Deployment..."
 echo "================================================="
 
 # 1. Pull the latest code from the repository

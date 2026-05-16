@@ -30,7 +30,7 @@ export function Navbar() {
           <div className="flex items-center justify-between">
             <Link href="/" className="flex items-center gap-2 group">
               <span className="text-[28px] font-black tracking-[2px] bg-gradient-to-tr from-[#00f2ff] to-[#bc00ff] bg-clip-text text-transparent group-hover:drop-shadow-[0_0_15px_rgba(0,242,255,0.5)] transition-all">
-                DonYar
+                DanYar
               </span>
               <div className="flex items-center justify-center bg-white/10 backdrop-blur-md border border-white/20 rounded-md px-2 py-0.5 mt-1 shadow-[0_0_10px_rgba(188,0,255,0.2)]">
                 <Sparkles className="w-3 h-3 text-[#bc00ff] mr-1" />
@@ -89,7 +89,7 @@ export function Navbar() {
             <div className="flex flex-col h-full right-0 left-0 absolute inset-0">
               <div className="p-4 flex justify-between items-center border-b border-white/10">
                 <div className="flex items-center gap-2">
-                  <span className="text-[28px] font-black tracking-[2px] bg-gradient-to-r from-[#bc00ff] to-[#00f2ff] bg-clip-text text-transparent">DonYar</span>
+                  <span className="text-[28px] font-black tracking-[2px] bg-gradient-to-r from-[#bc00ff] to-[#00f2ff] bg-clip-text text-transparent">DanYar</span>
                   <div className="flex items-center justify-center bg-white/10 backdrop-blur-md border border-white/20 rounded-md px-2 py-0.5 mt-1">
                     <span className="text-[10px] font-extrabold text-white tracking-widest uppercase">AI</span>
                   </div>
