@@ -51,7 +51,7 @@ const CONSTANTS = {
 
     // --- AI & OpenAI Settings ---
     AI: {
-        DEFAULT_MODEL: 'gpt-4o-mini', // The most cost-effective model
+        DEFAULT_MODEL: 'gpt-5.4-mini', // The most cost-effective model
         ROLES: {
             SYSTEM: 'system',
             USER: 'user',
